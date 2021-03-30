@@ -1,0 +1,126 @@
+stages:
+  - build
+  - deploy
+  - decom
+
+variables:
+  RELEASE_TAG: v1.0.0
+  APPLICATION_NAME: fah-kube
+  HELM_USER: "helm-deployer"
+  DEV_IMAGE: "gitlab.example.com:4567/group/$APPLICATION_NAME:latest"
+  CLAIR_ADDR: https://api-route-clair-scanner.example.com:443
+  KLAR_IMAGE: $CI_REGISTRY/cats/klar-cmd:latest
+  
+before_script:
+  - echo "Starting the build $CI_BUILD_ID / $CI_BUILD_REF on $CI_PROJECT_DIR using $CI_DEPLOY_USER"
+  - if [[ -z ${CI_DEPLOY_USER} ]]; then echo "The gitlab-deploy-token has not been set on your project, please check the readme" && exit 1; fi
+  - if [[ -z ${DEV_HELM_TOKEN} ]]; then echo "The DEV_HELM_TOKEN secret is not set on your project, possible failure if you deploy to DEV"; fi
+  - if [[ -z ${PROD_HELM_TOKEN} ]]; then echo "The PROD_HELM_TOKEN secret is not set on your project, possible failure if you deploy to PROD"; fi
+
+.k8s_config: &k8s_config |
+  # set up config to access kubernetes cluster
+  echo $HELM_USER "in" $CLUSTER_NAMESPACE
+  kubectl config set-cluster dhtskube --server="$CLUSTER_SERVER" --insecure-skip-tls-verify=true
+  kubectl config set-credentials "$HELM_USER" --token="$HELM_TOKEN"
+  kubectl config set-context $CLUSTER_NAMESPACE-deploy  --cluster=dhtskube --namespace=$CLUSTER_NAMESPACE --user=$HELM_USER
+  kubectl config use-context $CLUSTER_NAMESPACE-deploy
+
+.k8s_get_pods: &k8s_get_pods |
+  # kubectl get pods
+  sleep 5
+  kubectl get pods -l app=$APPLICATION_NAME
+
+.k8s_logs: &k8s_logs |
+  # kubectl logs first pod
+  POD=$(kubectl get pod -l app=$APPLICATION_NAME -o jsonpath="{.items[0].metadata.name}")
+  echo $POD
+  kubectl logs $POD
+
+build:
+  stage: build
+  tags:
+    - shell-executor
+  script:
+    - docker login -u $USER_ACCOUNT -p $USER_TOKEN $CI_REGISTRY
+    - docker build -t gitlab.example.com:4567/group/fah-kube .
+    - docker push gitlab.example.com:4567/group/fah-kube
+
+.deploy:
+  stage: deploy
+  image: $CI_REGISTRY/utility/docker-helm:latest
+  tags:
+    - docker-executor
+  script:
+    - *k8s_config
+    - kubectl create secret docker-registry gitlab-deploy-auth-fah
+        --docker-server=$CI_REGISTRY
+        --docker-username=$CI_DEPLOY_USER
+        --docker-password=$CI_DEPLOY_PASSWORD
+        || true
+
+    - echo $APPLICATION_NAME
+    - echo $CLUSTER_SERVER
+    - echo $CLUSTER_NAMESPACE
+    - *k8s_get_pods
+    - kubectl apply -f fah-kube.yml --validate
+    - kubectl apply -f $ROUTE_DEF --validate
+    - kubectl rollout status deployment/fah-kube-deployment -w 
+    - kubectl describe deployment -l app=$APPLICATION_NAME
+    - *k8s_get_pods
+
+dev_deploy:
+  stage: deploy
+  extends: .deploy
+  when: manual
+  variables:
+    CLUSTER_NAMESPACE: $DEV_CLUSTER_NAMESPACE
+    CLUSTER_SERVER: $DEV_CLUSTER_SERVER
+    HELM_TOKEN: $DEV_HELM_TOKEN
+    ROUTE_DEF: "dev_route.yml"
+
+prod_deploy:
+  stage: deploy
+  extends: .deploy
+  when: manual
+  variables:
+    CLUSTER_NAMESPACE: $PROD_CLUSTER_NAMESPACE
+    CLUSTER_SERVER: $PROD_CLUSTER_SERVER
+    HELM_TOKEN: $PROD_HELM_TOKEN
+    ROUTE_DEF: "prod_route.yml"
+
+.decom:
+  stage: decom
+  when: manual
+  image: $CI_REGISTRY/utility/docker-helm:latest
+  tags:
+    - docker-executor
+  variables:
+  script:
+    - *k8s_config
+    # remove application
+    - echo remove $APPLICATION_NAME
+    - *k8s_get_pods
+    - kubectl delete -f fah-kube.yml --all
+    - kubectl delete -f $ROUTE_DEF --all
+    - kubectl delete secret gitlab-deploy-auth-fah
+    - *k8s_get_pods
+
+dev_decom:
+  stage: decom
+  extends: .decom
+  when: manual
+  variables:
+    CLUSTER_NAMESPACE: $DEV_CLUSTER_NAMESPACE
+    CLUSTER_SERVER: $DEV_CLUSTER_SERVER
+    HELM_TOKEN: $DEV_HELM_TOKEN
+    ROUTE_DEF: "dev_route.yml"
+
+prod_decom:
+  stage: decom
+  extends: .decom
+  when: manual
+  variables:
+    CLUSTER_NAMESPACE: $PROD_CLUSTER_NAMESPACE
+    CLUSTER_SERVER: $PROD_CLUSTER_SERVER
+    HELM_TOKEN: $PROD_HELM_TOKEN
+    ROUTE_DEF: "prod_route.yml"

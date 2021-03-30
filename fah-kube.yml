@@ -1,0 +1,92 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fah-kube-deployment
+  labels:
+    app: fah-kube
+spec:
+  selector:
+    matchLabels:
+      app: fah-kube
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 100%
+      maxSurge: 100%
+  template:
+    metadata:
+      labels:
+        app: fah-kube
+    spec:
+      containers:
+        - name: fah-kube
+          image: "gitlab.example.com:4567/group/fah-kube:latest"
+          command:
+            - "/usr/bin/FAHClient"
+            - "--config"
+            - "/var/lib/fahclient/config.xml"
+            - "--config-rotate=false"
+            - "--run-as"
+            - "1000999999"
+            - "--pid-file=/var/lib/fahclient/fahclient.pid"
+            - "--gpu=true"
+          ports:
+            - name: port-7396
+              containerPort: 7396
+          resources:
+            limits:
+              nvidia.com/gpu: 1
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000999999
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+          volumeMounts:
+            - mountPath: /var/lib/fahclient
+              name: fahclient
+      volumes:
+        - name: fahclient
+          emptyDir: {}
+        # - name: fah-kube-config
+        #   configMap:
+        #     name: fah-kube-config
+      initContainers:
+        - name: copy-config
+          imagePullPolicy: Always
+          image: "gitlab.example.com:4567/group/fah-kube:latest"
+          command:
+            - "sh"
+            - "-c"
+            - "cp /etc/fahclient/config.xml /var/lib/fahclient/config.xml"
+            # saving in case I try configmap again
+            # - "cp /etc/fahclient-config/config.xml /var/lib/fahclient/config.xml"
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000999999
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+          volumeMounts:
+            - mountPath: /var/lib/fahclient
+              name: fahclient
+            # - name: fah-kube-config
+            #   mountPath: /etc/fahclient-config
+      imagePullSecrets:
+        - name: gitlab-deploy-auth-fah
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fah-kube-service
+  labels:
+    app: fah-kube
+spec:
+  selector:
+    app: fah-kube
+  ports:
+  - name: port-7396
+    protocol: TCP
+    port: 7396
+    targetPort: port-7396

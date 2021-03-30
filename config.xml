@@ -1,0 +1,20 @@
+<config>
+    <!-- HTTP Server -->
+    <allow v='127.0.0.1 0/0'/>
+
+    <!-- Network -->
+    <proxy v=':8080'/>
+
+    <!-- Slot Control -->
+    <power v='full'/>
+
+    <!-- User Information -->
+    <team v='UID'/>
+    <user v='User'/>
+
+    <!-- Web Server -->
+    <web-allow v='127.0.0.1 0/0'/>
+
+    <!-- Folding Slots -->
+    <slot id='1' type='GPU'/>
+</config>
