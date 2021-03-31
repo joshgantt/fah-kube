@@ -20,9 +20,9 @@ before_script:
 .k8s_config: &k8s_config |
   # set up config to access kubernetes cluster
   echo $HELM_USER "in" $CLUSTER_NAMESPACE
-  kubectl config set-cluster dhtskube --server="$CLUSTER_SERVER" --insecure-skip-tls-verify=true
+  kubectl config set-cluster prodkube --server="$CLUSTER_SERVER" --insecure-skip-tls-verify=true
   kubectl config set-credentials "$HELM_USER" --token="$HELM_TOKEN"
-  kubectl config set-context $CLUSTER_NAMESPACE-deploy  --cluster=dhtskube --namespace=$CLUSTER_NAMESPACE --user=$HELM_USER
+  kubectl config set-context $CLUSTER_NAMESPACE-deploy  --cluster=prodkube --namespace=$CLUSTER_NAMESPACE --user=$HELM_USER
   kubectl config use-context $CLUSTER_NAMESPACE-deploy
 
 .k8s_get_pods: &k8s_get_pods |
